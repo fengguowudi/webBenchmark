@@ -22,103 +22,100 @@ import (
 )
 
 func goFun(postContent string, Referer string, XforwardFor bool, customIP ipArray, wg *sync.WaitGroup) {
-	defer func() {
-		if r := recover(); r != nil {
-			go goFun(postContent, Referer, XforwardFor, customIP, wg)
-		}
-	}()
+	defer wg.Done()
 
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	randSource := rand.New(rand.NewSource(time.Now().UnixNano()))
+	transport := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+
+	if customIP != nil && len(customIP) > 0 {
+		dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			ip := customIP[randSource.Intn(len(customIP))]
+			return dialer.DialContext(ctx, network, formatDialAddr(addr, ip))
+		}
+		transport.DialTLSContext = transport.DialContext
 	}
 
-	for true {
-		if customIP != nil && len(customIP) > 0 {
-			dialer := &net.Dialer{
-				Timeout:   30 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}
-			transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-				rand.Seed(time.Now().Unix())
-				ip := customIP[rand.Intn(len(customIP))]
-				if strings.HasPrefix(addr, "https") {
-					addr = ip + ":443"
-				} else if strings.HasPrefix(addr, "http") {
-					addr = ip + ":80"
-				} else {
-					addr = ip + ":80"
-				}
-				return dialer.DialContext(ctx, network, addr)
-			}
-			transport.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-				rand.Seed(time.Now().Unix())
-				ip := customIP[rand.Intn(len(customIP))]
-				if strings.HasPrefix(addr, "https") {
-					addr = ip + ":443"
-				} else if strings.HasPrefix(addr, "http") {
-					addr = ip + ":80"
-				} else {
-					addr = ip + ":80"
-				}
-				return dialer.DialContext(ctx, network, addr)
-			}
-		}
+	client := &http.Client{Transport: transport, Timeout: 10 * time.Second}
 
-		var request *http.Request
-		var err1 error = nil
-		client := &http.Client{
-			Transport: transport,
-			Timeout:   time.Second * 10,
-		}
-		if len(postContent) > 0 {
-			request, err1 = http.NewRequest("POST", TargetUrl, strings.NewReader(postContent))
-		} else {
-			request, err1 = http.NewRequest("GET", TargetUrl, nil)
-		}
-		if err1 != nil {
-			continue
-		}
-		if len(Referer) == 0 {
-			Referer = TargetUrl
-		}
-		request.Header.Add("Cookie", RandStringBytesMaskImpr(12))
-		request.Header.Add("User-Agent", browser.Random())
-		request.Header.Add("Referer", Referer)
-		if XforwardFor {
-			randomip := generateRandomIPAddress()
-			request.Header.Add("X-Forwarded-For", randomip)
-			request.Header.Add("X-Real-IP", randomip)
-		}
+	for {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					return
+				}
+			}()
 
-		if len(headers) > 0 {
-			for _, head := range headers {
-				headKey := head.key
-				headValue := head.value
-				if strings.HasPrefix(head.key, "Random") {
-					count, convErr := strconv.Atoi(strings.ReplaceAll(head.value, "Random", ""))
-					if convErr == nil {
-						headKey = RandStringBytesMaskImpr(count)
-					}
-				}
-				if strings.HasPrefix(head.value, "Random") {
-					count, convErr := strconv.Atoi(strings.ReplaceAll(head.value, "Random", ""))
-					if convErr == nil {
-						headValue = RandStringBytesMaskImpr(count)
-					}
-				}
-				request.Header.Del(headKey)
-				request.Header.Set(headKey, headValue)
+			request, err1 := buildRequest(postContent, Referer, XforwardFor)
+			if err1 != nil {
+				return
 			}
-		}
 
-		resp, err2 := client.Do(request)
-		if err2 != nil {
-			continue
-		}
-		io.Copy(ioutil.Discard, resp.Body)
-		resp.Body.Close()
+			if len(headers) > 0 {
+				applyCustomHeaders(request)
+			}
+
+			resp, err2 := client.Do(request)
+			if err2 != nil {
+				return
+			}
+			io.Copy(ioutil.Discard, resp.Body)
+			resp.Body.Close()
+		}()
 	}
-	wg.Done()
+}
+
+func formatDialAddr(addr, ip string) string {
+	if strings.HasPrefix(addr, "https") {
+		return ip + ":443"
+	}
+	return ip + ":80"
+}
+
+func buildRequest(postContent string, Referer string, XforwardFor bool) (*http.Request, error) {
+	var request *http.Request
+	var err error
+	if len(postContent) > 0 {
+		request, err = http.NewRequest("POST", TargetUrl, strings.NewReader(postContent))
+	} else {
+		request, err = http.NewRequest("GET", TargetUrl, nil)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(Referer) == 0 {
+		Referer = TargetUrl
+	}
+	request.Header.Add("Cookie", RandStringBytesMaskImpr(12))
+	request.Header.Add("User-Agent", browser.Random())
+	request.Header.Add("Referer", Referer)
+	if XforwardFor {
+		randomip := generateRandomIPAddress()
+		request.Header.Add("X-Forwarded-For", randomip)
+		request.Header.Add("X-Real-IP", randomip)
+	}
+	return request, nil
+}
+
+func applyCustomHeaders(request *http.Request) {
+	for _, head := range headers {
+		headKey := head.key
+		headValue := head.value
+		if strings.HasPrefix(head.key, "Random") {
+			count, convErr := strconv.Atoi(strings.ReplaceAll(head.value, "Random", ""))
+			if convErr == nil {
+				headKey = RandStringBytesMaskImpr(count)
+			}
+		}
+		if strings.HasPrefix(head.value, "Random") {
+			count, convErr := strconv.Atoi(strings.ReplaceAll(head.value, "Random", ""))
+			if convErr == nil {
+				headValue = RandStringBytesMaskImpr(count)
+			}
+		}
+		request.Header.Del(headKey)
+		request.Header.Set(headKey, headValue)
+	}
 }
 
 var h = flag.Bool("h", false, "this help")
