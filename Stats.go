@@ -14,6 +14,8 @@ import (
 
 func showStat() {
 	initialNetCounter, _ := netstat.IOCounters(true)
+	lastCounters := buildCounterMap(initialNetCounter)
+	lastSampleTime := time.Now()
 	iplist := ""
 	if customIP != nil && len(customIP) > 0 {
 		iplist = customIP.String()
@@ -27,6 +29,11 @@ func showStat() {
 		memStat, _ := mem.VirtualMemory()
 		netCounter, _ := netstat.IOCounters(true)
 		loadStat, _ := load.Avg()
+		now := time.Now()
+		elapsedSeconds := now.Sub(lastSampleTime).Seconds()
+		if elapsedSeconds <= 0 {
+			elapsedSeconds = 1
+		}
 
 		fmt.Fprintf(TerminalWriter, "URL:%s\n", TargetUrl)
 		fmt.Fprintf(TerminalWriter, "IP:%s\n", iplist)
@@ -38,43 +45,34 @@ func showStat() {
 			if netCounter[i].BytesRecv == 0 && netCounter[i].BytesSent == 0 {
 				continue
 			}
-			RecvBytes := float64(netCounter[i].BytesRecv - initialNetCounter[i].BytesRecv)
-			SendBytes := float64(netCounter[i].BytesSent - initialNetCounter[i].BytesSent)
-			//if RecvBytes > 1000 {
-			//	SpeedIndex++
-			//	pair := speedPair{
-			//		index: SpeedIndex,
-			//		speed: RecvBytes,
-			//	}
-			//	SpeedQueue.PushBack(pair)
-			//	if SpeedQueue.Len() > 60 {
-			//		SpeedQueue.Remove(SpeedQueue.Front())
-			//	}
-			//	var x []float64
-			//	var y []float64
-			//	x = make([]float64, 60)
-			//	y = make([]float64, 60)
-			//	var point = 0
-			//	for item := SpeedQueue.Front(); item != nil; item = item.Next() {
-			//		spdPair := item.Value.(speedPair)
-			//		x[point] = float64(spdPair.index)
-			//		y[point] = spdPair.speed
-			//		point++
-			//	}
-			//	_, b := LeastSquares(x, y)
-			//	log.Printf("Speed Vertical:%.3f\n", b)
-			//}
+			prevCounter, ok := lastCounters[netCounter[i].Name]
+			if !ok {
+				prevCounter = netCounter[i]
+			}
+			RecvBytes := float64(netCounter[i].BytesRecv - prevCounter.BytesRecv)
+			SendBytes := float64(netCounter[i].BytesSent - prevCounter.BytesSent)
+			RecvSpeed := RecvBytes / elapsedSeconds
+			SendSpeed := SendBytes / elapsedSeconds
 			fmt.Fprintf(TerminalWriter, "Nic:%v,Recv %s(%s/s),Send %s(%s/s)\n", netCounter[i].Name,
 				readableBytes(float64(netCounter[i].BytesRecv)),
-				readableBytes(RecvBytes),
+				readableBytes(RecvSpeed),
 				readableBytes(float64(netCounter[i].BytesSent)),
-				readableBytes(SendBytes))
+				readableBytes(SendSpeed))
 		}
-		initialNetCounter = netCounter
+		lastCounters = buildCounterMap(netCounter)
+		lastSampleTime = now
 		TerminalWriter.Clear()
 		TerminalWriter.Print()
 		time.Sleep(1 * time.Second)
 	}
+}
+
+func buildCounterMap(counters []netstat.IOCountersStat) map[string]netstat.IOCountersStat {
+	counterMap := make(map[string]netstat.IOCountersStat, len(counters))
+	for i := 0; i < len(counters); i++ {
+		counterMap[counters[i].Name] = counters[i]
+	}
+	return counterMap
 }
 
 func readableBytes(bytes float64) (expression string) {
