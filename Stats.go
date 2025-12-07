@@ -18,7 +18,7 @@ func showStat() {
 	if customIP != nil && len(customIP) > 0 {
 		iplist = customIP.String()
 	} else {
-		u, _ := URL.Parse(*url)
+		u, _ := URL.Parse(TargetUrl)
 		iplist = strings.Join(nslookup(u.Hostname(), "8.8.8.8"), ",")
 	}
 

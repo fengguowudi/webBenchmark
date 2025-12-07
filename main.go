@@ -24,7 +24,13 @@ func goFun(postContent string, Referer string, XforwardFor bool, customIP ipArra
 	defer wg.Done()
 
 	randSource := rand.New(rand.NewSource(time.Now().UnixNano()))
-	transport := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+	transport := &http.Transport{
+		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
+		MaxIdleConns:        512,
+		MaxIdleConnsPerHost: 512,
+		IdleConnTimeout:     30 * time.Second,
+		DisableCompression:  true,
+	}
 
 	if customIP != nil && len(customIP) > 0 {
 		dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
@@ -45,13 +51,13 @@ func goFun(postContent string, Referer string, XforwardFor bool, customIP ipArra
 				}
 			}()
 
-			request, err1 := buildRequest(postContent, Referer, XforwardFor)
+			request, err1 := buildRequest(postContent, Referer, XforwardFor, randSource)
 			if err1 != nil {
 				return
 			}
 
 			if len(headers) > 0 {
-				applyCustomHeaders(request)
+				applyCustomHeaders(request, randSource)
 			}
 
 			resp, err2 := client.Do(request)
@@ -65,13 +71,22 @@ func goFun(postContent string, Referer string, XforwardFor bool, customIP ipArra
 }
 
 func formatDialAddr(addr, ip string) string {
-	if strings.HasPrefix(addr, "https") {
-		return ip + ":443"
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		// fallback to original when the address is unexpected
+		return addr
 	}
-	return ip + ":80"
+	if len(port) == 0 {
+		if strings.HasPrefix(host, "https") {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	return net.JoinHostPort(ip, port)
 }
 
-func buildRequest(postContent string, Referer string, XforwardFor bool) (*http.Request, error) {
+func buildRequest(postContent string, Referer string, XforwardFor bool, randSource *rand.Rand) (*http.Request, error) {
 	var request *http.Request
 	var err error
 	if len(postContent) > 0 {
@@ -85,31 +100,31 @@ func buildRequest(postContent string, Referer string, XforwardFor bool) (*http.R
 	if len(Referer) == 0 {
 		Referer = TargetUrl
 	}
-	request.Header.Add("Cookie", RandStringBytesMaskImpr(12))
+	request.Header.Add("Cookie", RandStringBytesMaskImpr(12, randSource))
 	request.Header.Add("User-Agent", browser.Random())
 	request.Header.Add("Referer", Referer)
 	if XforwardFor {
-		randomip := generateRandomIPAddress()
+		randomip := generateRandomIPAddress(randSource)
 		request.Header.Add("X-Forwarded-For", randomip)
 		request.Header.Add("X-Real-IP", randomip)
 	}
 	return request, nil
 }
 
-func applyCustomHeaders(request *http.Request) {
+func applyCustomHeaders(request *http.Request, randSource *rand.Rand) {
 	for _, head := range headers {
 		headKey := head.key
 		headValue := head.value
 		if strings.HasPrefix(head.key, "Random") {
 			count, convErr := strconv.Atoi(strings.ReplaceAll(head.value, "Random", ""))
 			if convErr == nil {
-				headKey = RandStringBytesMaskImpr(count)
+				headKey = RandStringBytesMaskImpr(count, randSource)
 			}
 		}
 		if strings.HasPrefix(head.value, "Random") {
 			count, convErr := strconv.Atoi(strings.ReplaceAll(head.value, "Random", ""))
 			if convErr == nil {
-				headValue = RandStringBytesMaskImpr(count)
+				headValue = RandStringBytesMaskImpr(count, randSource)
 			}
 		}
 		request.Header.Del(headKey)
@@ -160,6 +175,12 @@ func main() {
 		return
 	}
 	routines := *count
+
+	if len(*url) > 0 {
+		TargetUrl = *url
+	} else {
+		TargetUrl = "https://baidu.com"
+	}
 
 	if customIP != nil && len(customIP) > 0 && routines < len(customIP) {
 		routines = len(customIP)
