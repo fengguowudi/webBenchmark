@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/EDDYCJY/fake-useragent"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"os"
@@ -59,7 +58,7 @@ func goFun(postContent string, Referer string, XforwardFor bool, customIP ipArra
 			if err2 != nil {
 				return
 			}
-			io.Copy(ioutil.Discard, resp.Body)
+			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 		}()
 	}
