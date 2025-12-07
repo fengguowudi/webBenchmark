@@ -24,23 +24,7 @@ func goFun(postContent string, Referer string, XforwardFor bool, customIP ipArra
 	defer wg.Done()
 
 	randSource := rand.New(rand.NewSource(time.Now().UnixNano()))
-	transport := &http.Transport{
-		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
-		MaxIdleConns:        512,
-		MaxIdleConnsPerHost: 512,
-		IdleConnTimeout:     30 * time.Second,
-		DisableCompression:  true,
-	}
-
-	if customIP != nil && len(customIP) > 0 {
-		dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
-		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			ip := customIP[randSource.Intn(len(customIP))]
-			return dialer.DialContext(ctx, network, formatDialAddr(addr, ip))
-		}
-		transport.DialTLSContext = transport.DialContext
-	}
-
+	transport := buildTransport(customIP, randSource)
 	client := &http.Client{Transport: transport, Timeout: 10 * time.Second}
 
 	for {
@@ -68,6 +52,38 @@ func goFun(postContent string, Referer string, XforwardFor bool, customIP ipArra
 			resp.Body.Close()
 		}()
 	}
+}
+
+func buildTransport(customIP ipArray, randSource *rand.Rand) *http.Transport {
+	transport := &http.Transport{
+		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
+		ForceAttemptHTTP2:   true,
+		MaxIdleConns:        1024,
+		MaxIdleConnsPerHost: 1024,
+		IdleConnTimeout:     30 * time.Second,
+		DisableCompression:  true,
+	}
+
+	if customIP != nil && len(customIP) > 0 {
+		dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			ip := customIP[randSource.Intn(len(customIP))]
+			return dialer.DialContext(ctx, network, formatDialAddr(addr, ip))
+		}
+		transport.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, _, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			ip := customIP[randSource.Intn(len(customIP))]
+			return tls.DialWithDialer(dialer, network, formatDialAddr(addr, ip), &tls.Config{
+				InsecureSkipVerify: true,
+				ServerName:         host,
+			})
+		}
+	}
+
+	return transport
 }
 
 func formatDialAddr(addr, ip string) string {
