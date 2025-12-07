@@ -73,7 +73,7 @@ func showStat() {
 		initialNetCounter = netCounter
 		TerminalWriter.Clear()
 		TerminalWriter.Print()
-		time.Sleep(1 * time.Millisecond)
+		time.Sleep(1 * time.Second)
 	}
 }
 
