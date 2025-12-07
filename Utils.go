@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
-	"time"
 )
 
 const (
@@ -60,11 +59,11 @@ func (i *ipArray) Set(value string) (err error) {
 	return nil
 }
 
-func RandStringBytesMaskImpr(n int) string {
+func RandStringBytesMaskImpr(n int, randSource *rand.Rand) string {
 	b := make([]byte, n)
-	for i, cache, remain := n-1, rand.Int63(), letterIdxMax; i >= 0; {
+	for i, cache, remain := n-1, randSource.Int63(), letterIdxMax; i >= 0; {
 		if remain == 0 {
-			cache, remain = rand.Int63(), letterIdxMax
+			cache, remain = randSource.Int63(), letterIdxMax
 		}
 		if idx := int(cache & letterIdxMask); idx < len(letterBytes) {
 			b[i] = letterBytes[idx]
@@ -76,9 +75,8 @@ func RandStringBytesMaskImpr(n int) string {
 	return string(b)
 }
 
-func generateRandomIPAddress() string {
-	rand.Seed(time.Now().Unix())
-	ip := fmt.Sprintf("%d.%d.%d.%d", rand.Intn(255), rand.Intn(255), rand.Intn(255), rand.Intn(255))
+func generateRandomIPAddress(randSource *rand.Rand) string {
+	ip := fmt.Sprintf("%d.%d.%d.%d", randSource.Intn(255), randSource.Intn(255), randSource.Intn(255), randSource.Intn(255))
 	return ip
 }
 
