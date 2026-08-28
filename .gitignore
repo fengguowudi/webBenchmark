@@ -13,3 +13,4 @@ bin
 .auto/tlstest
 .auto/run_raw*.sh
 .auto/run_nh.sh
+.auto/robust.sh
