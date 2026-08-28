@@ -1,8 +1,7 @@
 # Deferred ideas (webBenchmark bandwidth) — FINAL STATE
 
-All loopback-verifiable hypotheses have been measured (17 experiments). The
+All loopback-verifiable hypotheses have been measured (22 experiments). The
 following remain, all requiring something this harness cannot provide:
-
 - **Real-WAN / 10G-LAN benchmark** (the one real next step): the loopback
   harness cannot resolve sub-drift client changes on real links. Point the
   harness at a real remote server and re-run the kept optimizations there.
@@ -20,7 +19,8 @@ following remain, all requiring something this harness cannot provide:
 ## Done (this session, measured/discarded)
 - ReadBufferSize (negative), IP builder (noise), TCP-reference normalization
   (disproven), timeout machinery (free — default kept), transport sharding,
-  URL-cache/Clone (neutral/negative), drain pooling (neutral)
+  URL-cache/Clone (neutral/negative), drain pooling (neutral),
+  GOMEMLIMIT (neutral, #22)
 
 ## Conclusion
 webBenchmark on this box: 19.4 → ~30-36.5 Gbps loopback (depending on -c),
