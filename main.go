@@ -133,22 +133,37 @@ func main() {
 		go RefreshHttpLocation(ctx, initialTarget)
 	}
 
-	transport := buildTransport(customIP)
-	client := &http.Client{Transport: transport, Timeout: *requestTimeout}
-	defer transport.CloseIdleConnections()
+	transportShards := 8
+	if *concurrency < transportShards {
+		transportShards = *concurrency
+	}
+	transports := buildTransports(customIP, transportShards)
+	clients := make([]*http.Client, transportShards)
+	for i, t := range transports {
+		clients[i] = &http.Client{Transport: t, Timeout: *requestTimeout}
+		defer t.CloseIdleConnections()
+	}
 
 	go showStat(ctx)
 
 	var waitGroup sync.WaitGroup
 	for workerID := 0; workerID < *concurrency; workerID++ {
 		waitGroup.Add(1)
-		go goFun(ctx, client, *postContent, *referer, *xforwardfor, headers, workerID, &waitGroup)
+		go goFun(ctx, clients[workerID%transportShards], *postContent, *referer, *xforwardfor, headers, workerID, &waitGroup)
 	}
 	waitGroup.Wait()
 	terminalWriter.Reset()
 }
 
-func buildTransport(customIPs ipArray) *http.Transport {
+func buildTransports(customIPs ipArray, shards int) []*http.Transport {
+	transports := make([]*http.Transport, 0, shards)
+	for i := 0; i < shards; i++ {
+		transports = append(transports, buildTransport(customIPs, i))
+	}
+	return transports
+}
+
+func buildTransport(customIPs ipArray, shard int) *http.Transport {
 	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
 	transport := &http.Transport{
 		DialContext:           dialer.DialContext,
@@ -166,7 +181,7 @@ func buildTransport(customIPs ipArray) *http.Transport {
 		return transport
 	}
 
-	var ipIndex atomic.Uint64
+	var ipIndex atomic.Uint64 // per-shard, so shards don't cycle IPs in lockstep
 	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		ip := customIPs[ipIndex.Add(1)%uint64(len(customIPs))]
 		return dialer.DialContext(ctx, network, formatDialAddr(addr, ip))

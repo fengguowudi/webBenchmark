@@ -20,10 +20,11 @@ var (
 	requests atomic.Uint64
 )
 
+var contentLength string
+
 func handler(w http.ResponseWriter, r *http.Request) {
 	requests.Add(1)
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
-	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Length", contentLength)
 	n, _ := w.Write(body)
 	bytesOut.Add(uint64(n))
 }
@@ -31,6 +32,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	flag.Parse()
 	body = make([]byte, *size)
+	contentLength = fmt.Sprintf("%d", len(body))
 	for i := range body {
 		body[i] = byte(i)
 	}

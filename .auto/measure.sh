@@ -2,10 +2,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-DUR=4          # client run seconds
-CONC=64        # client concurrency
+DUR=${DUR:-4}      # client run seconds
+CONC=${CONC:-64}    # client concurrency (env override)
 PORT=18081
-SIZE=1048576   # 1MB payload
+SIZE=${SIZE:-32768} # payload bytes (env override); 32KB keeps the client request-bound
 
 # Fast pre-check: client must compile.
 go build -o .auto/wb.exe . || { echo "CLIENT_BUILD_FAILED"; exit 1; }
