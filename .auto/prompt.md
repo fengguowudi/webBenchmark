@@ -66,8 +66,14 @@ body, no per-request allocation, counts bytes served).
 - **Drift normalization DISPROVEN** (log #13): a same-window pure-TCP reference adds noise (normalized CV 5.1% vs raw HTTP 2.5%) — it doesn't move proportionally with HTTP drift. Raw metric is the best signal; use interleaved A/B, not normalization.
 - Keep the benchmark as a regression check (client+server CPU pair), not a micro-optimization target.
 
-### End-to-end validation (log #11)
-- Interleaved A/B, same tuned server: original client 19.4 vs current 29.75 Gbps median (**+53%**, 4 pairs, original matches its historical baseline exactly → gain is real, drift-free).
+### End-to-end validation (log #11, log #15 release gate)
+- Interleaved A/B, same tuned server: original vs current = **+47-53%** (19.4→29.75 and 21.4→31.4 Gbps medians; final-above-original in every pair both times). Exact shipped code re-validated after the best-effort fix. Gain is real and drift-free.
+
+## FINAL SESSION SUMMARY
+- **Tool wins (kept)**: 2MB best-effort socket buffers (the +47-53% bandwidth unlock), GOGC=400 (+4% high-concurrency), plus the original client's strong base.
+- **Measured and documented**: concurrency curve (c=4 peak), attribution (server-side plateau), timeout machinery (free), drift normalization (disproven), all transport buffers.
+- **Discarded**: ReadBufferSize (-9%), IP builder (noise), normalization (worse).
+- **Outcome**: webBenchmark on this box: 19.4 → ~30-36.5 Gbps loopback depending on -c; leak-free; robust. Benchmark retained as a regression check with documented drift hygiene (interleaved A/B).
 
 ### Measured-neutral (no change)
 - http.Client.Timeout machinery (10s default): removing it gains ~1.8% (within drift) — effectively free; keep the safety default. (log #14)
