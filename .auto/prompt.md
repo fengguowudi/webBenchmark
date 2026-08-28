@@ -74,6 +74,7 @@ body, no per-request allocation, counts bytes served).
 - **Measured and documented**: concurrency curve (c=4 peak), attribution (server-side plateau), timeout machinery (free), drift normalization (disproven), all transport buffers.
 - **Discarded**: ReadBufferSize (-9%), IP builder (noise), normalization (worse).
 - **Outcome**: webBenchmark on this box: 19.4 → ~30-36.5 Gbps loopback depending on -c; leak-free; robust. Benchmark retained as a regression check with documented drift hygiene (interleaved A/B).
+- **Release quality (log #16)**: all shipped build.bat targets (linux/amd64, linux/arm, windows/amd64) cross-compile clean with the sockopt changes; Linux vet clean. Session's last unverified gap closed.
 
 ### Measured-neutral (no change)
 - http.Client.Timeout machinery (10s default): removing it gains ~1.8% (within drift) — effectively free; keep the safety default. (log #14)
