@@ -65,6 +65,9 @@ body, no per-request allocation, counts bytes served).
 - **Measurement hygiene: the machine drifts 10%+ over ~30min** (thermal/load). Always interleave A/B runs within minutes; a baseline is only valid short-term. Re-confirm baselines before judging changes.
 - Keep the benchmark as a regression check (client+server CPU pair), not a micro-optimization target.
 
+### End-to-end validation (log #11)
+- Interleaved A/B, same tuned server: original client 19.4 vs current 29.75 Gbps median (**+53%**, 4 pairs, original matches its historical baseline exactly → gain is real, drift-free).
+
 ### Kept wins
 - **Socket buffers (2MB SO_RCVBUF/SO_SNDBUF)**: build-tagged sockopt files (stdlib syscall), client Dialer.Control + bench-server tuned listener. 1MB c=64: 19.4 -> **32.0 Gbps (+60%)**, memory flat. Real high-BDP links benefit too. (log #6)
 - **GOGC=400 baked in** (`debug.SetGCPercent(400)` when GOGC env unset): +4% at c=256/32KB (11.5 vs 11.0 Gbps), +3.8% at 1MB c=64 (20.2 vs 19.4 Gbps), noise-level at c=16. Memory flat ~65MB, no leak. Confidence 2.2x noise floor. (log #4, keep)
