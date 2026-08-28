@@ -14,3 +14,4 @@
   code room to matter. Do this before any further client optimization.
 - ~~GC tuning (GOGC / GOMEMLIMIT)~~ **DONE**: GOGC=400 baked in (debug.SetGCPercent), +4% at c=256 and +3.8% at 1MB, kept. GOMEMLIMIT variant untested — unlikely to beat GOGC=400; skip.
 - ~~Manual XFF IP builder (drop fmt.Sprintf)~~ **DONE + REVERTED**: metric-neutral on loopback (below noise). Re-add only if a real-WAN benchmark shows allocation pressure.
+- **Concurrency sweep (1MB, socket-tuned)**: c=4 peaks at 36.5 Gbps, c=64 at 31.7. Loopback-specific (near-zero RTT); on real high-RTT links users still need high -c to fill BDP. No tool change.

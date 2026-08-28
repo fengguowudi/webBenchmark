@@ -60,6 +60,8 @@ body, no per-request allocation, counts bytes served).
 ### Conclusion
 - The tool is already near-optimal; further client micro-optimization is below the noise floor.
 - Real-world saturation = use enough -c (16-256), HTTP/1.1, and the tuned socket buffers; the wire sets the ceiling, but default socket buffers no longer do.
+- Loopback capability with socket tuning: **c=4 peaks 36.5 Gbps**, c=64 = 31.7, c=256 = 31.0. Metric stays at c=64 (realistic high-concurrency). HTTP/1.1 per-conn is RTT-serialization-limited, not syscall-limited.
+- **Measurement hygiene: the machine drifts 10%+ over ~30min** (thermal/load). Always interleave A/B runs within minutes; a baseline is only valid short-term. Re-confirm baselines before judging changes.
 - Keep the benchmark as a regression check (client+server CPU pair), not a micro-optimization target.
 
 ### Kept wins
@@ -67,4 +69,5 @@ body, no per-request allocation, counts bytes served).
 - **GOGC=400 baked in** (`debug.SetGCPercent(400)` when GOGC env unset): +4% at c=256/32KB (11.5 vs 11.0 Gbps), +3.8% at 1MB c=64 (20.2 vs 19.4 Gbps), noise-level at c=16. Memory flat ~65MB, no leak. Confidence 2.2x noise floor. (log #4, keep)
 
 ### Discarded
+- ReadBufferSize 64KB/8KB at 1MB: interleaved A/B shows **-9% real** (27.1 vs 29.9 Gbps). Default 4KB optimal (Windows buffer-pinning). (log #8)
 - Manual IP octet builder (removed fmt.Sprintf from hot path, 100K-case verified): metric-neutral at c=256, below noise floor. Reverted. (log #5)
