@@ -2,20 +2,18 @@ package main
 
 import "syscall"
 
-const socketBufferSize = 2 << 20 // 4MB SO_RCVBUF/SO_SNDBUF: high-BDP links + loopback need big windows
+const socketBufferSize = 2 << 20 // 2MB SO_RCVBUF/SO_SNDBUF: high-BDP links + loopback need big windows
 
 // tuneSocket raises the TCP socket buffers on a fresh connection.
+//
+// Best-effort by design: net.Dialer.Control fails the whole dial if it returns
+// an error, so a rejected setsockopt (hardened kernel, container, unsupported
+// platform) must NOT break the benchmark — big buffers are an optimization, not
+// a requirement.
 func tuneSocket(raw syscall.RawConn) error {
-	var setErr error
 	_ = raw.Control(func(fd uintptr) {
-		if err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_RCVBUF, socketBufferSize); err != nil {
-			setErr = err
-			return
-		}
-		if err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_SNDBUF, socketBufferSize); err != nil {
-			setErr = err
-			return
-		}
+		_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_RCVBUF, socketBufferSize)
+		_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_SNDBUF, socketBufferSize)
 	})
-	return setErr
+	return nil
 }
