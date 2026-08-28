@@ -61,6 +61,7 @@ body, no per-request allocation, counts bytes served).
 - The tool is already near-optimal; further client micro-optimization is below the noise floor.
 - Real-world saturation = use enough -c (16-256), HTTP/1.1, and the tuned socket buffers; the wire sets the ceiling, but default socket buffers no longer do.
 - Loopback capability with socket tuning: **c=4 peaks 36.5 Gbps**, c=64 = 31.7, c=256 = 31.0. Metric stays at c=64 (realistic high-concurrency). HTTP/1.1 per-conn is RTT-serialization-limited, not syscall-limited.
+- **c=4->c=64 decline is SERVER-side** (2 clients x c=32 = 30.7 Gbps == single c=64 = 32.1): not client contention. The tool is confirmed optimal at high concurrency; no fixable plateau. (log #10)
 - **Measurement hygiene: the machine drifts 10%+ over ~30min** (thermal/load). Always interleave A/B runs within minutes; a baseline is only valid short-term. Re-confirm baselines before judging changes.
 - Keep the benchmark as a regression check (client+server CPU pair), not a micro-optimization target.
 
