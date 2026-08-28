@@ -8,3 +8,8 @@ bin
 .auto/after.log
 .auto/diag.txt
 .auto/diag_cpu.sh
+.auto/rawtlshttp
+.auto/nhclient
+.auto/tlstest
+.auto/run_raw*.sh
+.auto/run_nh.sh
