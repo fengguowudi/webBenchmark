@@ -35,3 +35,10 @@ leak-free, robust, release-ready. The bottleneck everywhere is the machine
 - Use 8s windows for diagnostics (4s under-samples startup); always same-window
   interleaving for any wall-vs-http comparison.
 - Robust-harness capability picture: wall/peak ~38 @ c=4, metric ~33.5 @ c=64.
+
+## Capability picture (complete, uniform robust methodology, #33)
+- 1MB bandwidth regime: wall ~38-40 Gbps (8s pure-TCP, same-window), c=4 peak
+  ~39.7, c=64 metric ~32.8-33.5 (spread 2-6%).
+- 32KB request-rate regime: ~50.5K rps / 13.2 Gbps at c=16 (spread ~10%,
+  CPU-bound, inherently noisier than bandwidth regime).
+- Sustained full-load runs are thermally stable (no self-degradation, #32).
