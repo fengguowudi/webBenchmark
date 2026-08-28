@@ -42,3 +42,14 @@ leak-free, robust, release-ready. The bottleneck everywhere is the machine
 - 32KB request-rate regime: ~50.5K rps / 13.2 Gbps at c=16 (spread ~10%,
   CPU-bound, inherently noisier than bandwidth regime).
 - Sustained full-load runs are thermally stable (no self-degradation, #32).
+
+## FINAL SESSION STATE (#48)
+- Releases: v1.1.0 (socket buffers +47-53%, GOGC=400), v1.1.1 (ForceAttemptHTTP2
+  fix: HTTPS +4.8x loopback / +3.2x WAN-RTT / +4.5x request-rate).
+- Behavior map (all robust median-of-3, same-window interleaved):
+  HTTP 1MB: metric ~30-33.5 Gbps @ c=64, peak ~38 @ c=4; 32KB ~47K rps.
+  HTTPS 1MB: ~18.7 @ c=64 (flat c=4-64, c=16 optimal), 32KB ~38K rps.
+  Transitions: HTTP 64-128KB, TLS 32-64KB. RTT: 26->14 Gbps @ c=256 (5-100ms).
+- Verified: leak-free, thermally stable, robust to target crash (no hang).
+- Harness: median-of-3, DELAY (RTT sim), TLS (self-signed) flags.
+- ONLY remaining: real-WAN validation against an external target.
