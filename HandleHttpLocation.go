@@ -1,45 +1,62 @@
 package main
 
 import (
-	"fmt"
+	"context"
+	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
 
-func GetHttpLocation(Url string) string {
-	resp, err := http.Get(Url)
+const controlRequestTimeout = 10 * time.Second
+
+var (
+	controlClient = &http.Client{Timeout: controlRequestTimeout}
+	probeClient   = &http.Client{
+		Timeout: controlRequestTimeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+)
+
+func GetHttpLocation(ctx context.Context, rawURL string) string {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		fmt.Println("Error:", err)
 		return ""
 	}
-	defer resp.Body.Close()
-
-	fmt.Println("Headers for", url)
-
-	if resp.Request == nil || resp.Request.Response == nil || resp.Request.Response.Header == nil {
+	response, err := probeClient.Do(request)
+	if err != nil {
 		return ""
 	}
-	locationHeader := resp.Request.Response.Header["Location"][0]
-	if len(locationHeader) > 0 {
-		return locationHeader
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+
+	location := response.Header.Get("Location")
+	if location == "" || response.Request == nil || response.Request.URL == nil {
+		return ""
 	}
-	return ""
+	parsed, err := url.Parse(location)
+	if err != nil {
+		return ""
+	}
+	return response.Request.URL.ResolveReference(parsed).String()
 }
 
-func RefreshHttpLocation(Url string) string {
-	defer func() {
-		if r := recover(); r != nil {
-			go RefreshHttpLocation(*url)
-		}
-	}()
+func RefreshHttpLocation(ctx context.Context, rawURL string) {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
 
 	for {
-		time.Sleep(60 * time.Second)
-		location := GetHttpLocation(Url)
-		if len(location) > 0 {
-			TargetUrl = location
-		} else {
-			TargetUrl = *url
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if location := GetHttpLocation(ctx, rawURL); location != "" {
+				if err := validateTargetURL(location); err == nil {
+					setTargetURL(location)
+				}
+			}
 		}
 	}
 }

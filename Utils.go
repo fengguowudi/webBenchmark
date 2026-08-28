@@ -1,27 +1,30 @@
 package main
 
 import (
-	"container/list"
 	"fmt"
 	"math/rand"
+	"net"
+	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
+	"sync/atomic"
 )
 
-const (
-	letterIdxBits = 6
-	letterIdxMask = 1<<letterIdxBits - 1
-	letterIdxMax  = 63 / letterIdxBits
-)
-
-type speedPair struct {
-	index uint64
-	speed float64
-}
+const maxRandomHeaderLength = 4096
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-var SpeedQueue = list.New()
-var SpeedIndex uint64 = 0
+var activeTarget atomic.Value
+
+var userAgents = [...]string{
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
+	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.1 Safari/605.1.15",
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+	"Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0",
+	"Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36",
+}
 
 type header struct {
 	key, value string
@@ -38,13 +41,12 @@ func (h *headersList) IsCumulative() bool {
 }
 
 func (h *headersList) Set(value string) error {
-	res := strings.SplitN(value, ":", 2)
-	if len(res) != 2 {
-		return nil
+	key, headerValue, ok := strings.Cut(value, ":")
+	key = strings.TrimSpace(key)
+	if !ok || http.CanonicalHeaderKey(key) == "" {
+		return fmt.Errorf("header must be Key:Value")
 	}
-	*h = append(*h, header{
-		res[0], strings.Trim(res[1], " "),
-	})
+	*h = append(*h, header{key: key, value: strings.TrimSpace(headerValue)})
 	return nil
 }
 
@@ -54,51 +56,76 @@ func (i *ipArray) String() string {
 	return strings.Join(*i, ",")
 }
 
-func (i *ipArray) Set(value string) (err error) {
-	*i = append(*i, strings.TrimSpace(value))
+func (i *ipArray) Set(value string) error {
+	value = strings.TrimSpace(value)
+	if net.ParseIP(value) == nil {
+		return fmt.Errorf("invalid IP address %q", value)
+	}
+	*i = append(*i, value)
+	return nil
+}
+
+func setTargetURL(value string) {
+	activeTarget.Store(strings.TrimSpace(value))
+}
+
+func currentTargetURL() string {
+	value := activeTarget.Load()
+	if value == nil {
+		return ""
+	}
+	return value.(string)
+}
+
+func validateTargetURL(raw string) error {
+	parsed, err := url.ParseRequestURI(strings.TrimSpace(raw))
+	if err != nil || parsed.Host == "" {
+		if err == nil {
+			err = fmt.Errorf("missing host")
+		}
+		return err
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("scheme must be http or https")
+	}
 	return nil
 }
 
 func RandStringBytesMaskImpr(n int, randSource *rand.Rand) string {
-	b := make([]byte, n)
+	if n <= 0 || randSource == nil {
+		return ""
+	}
+	const letterIdxBits = 6
+	const letterIdxMask = 1<<letterIdxBits - 1
+	const letterIdxMax = 63 / letterIdxBits
+
+	bytes := make([]byte, n)
 	for i, cache, remain := n-1, randSource.Int63(), letterIdxMax; i >= 0; {
 		if remain == 0 {
 			cache, remain = randSource.Int63(), letterIdxMax
 		}
-		if idx := int(cache & letterIdxMask); idx < len(letterBytes) {
-			b[i] = letterBytes[idx]
+		if index := int(cache & letterIdxMask); index < len(letterBytes) {
+			bytes[i] = letterBytes[index]
 			i--
 		}
 		cache >>= letterIdxBits
 		remain--
 	}
-	return string(b)
+	return string(bytes)
+}
+
+func randomValue(value string, randSource *rand.Rand) string {
+	const prefix = "Random"
+	if !strings.HasPrefix(value, prefix) {
+		return value
+	}
+	length, err := strconv.Atoi(strings.TrimPrefix(value, prefix))
+	if err != nil || length < 0 || length > maxRandomHeaderLength {
+		return value
+	}
+	return RandStringBytesMaskImpr(length, randSource)
 }
 
 func generateRandomIPAddress(randSource *rand.Rand) string {
-	ip := fmt.Sprintf("%d.%d.%d.%d", randSource.Intn(255), randSource.Intn(255), randSource.Intn(255), randSource.Intn(255))
-	return ip
-}
-
-func LeastSquares(x []float64, y []float64) (a float64, b float64) {
-	xi := float64(0)
-	x2 := float64(0)
-	yi := float64(0)
-	xy := float64(0)
-	if len(x) != len(y) {
-		a = 0
-		b = 0
-		return
-	} else {
-		length := float64(len(x))
-		for i := 0; i < len(x); i++ {
-			xi += x[i]
-			x2 += x[i] * x[i]
-			yi += y[i]
-			xy += x[i] * y[i]
-		}
-		a = (yi*xi - xy*length) / (xi*xi - x2*length)
-		b = (yi*x2 - xy*xi) / (x2*length - xi*xi)
-	}
-	return
+	return fmt.Sprintf("%d.%d.%d.%d", randSource.Intn(256), randSource.Intn(256), randSource.Intn(256), randSource.Intn(256))
 }

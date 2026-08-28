@@ -5,239 +5,254 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"github.com/EDDYCJY/fake-useragent"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
-	"strconv"
+	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
-
-	"net"
 
 	"github.com/apoorvam/goterminal"
 )
 
-func goFun(postContent string, Referer string, XforwardFor bool, customIP ipArray, wg *sync.WaitGroup) {
-	defer wg.Done()
+const (
+	defaultConcurrency = 16
+	defaultTimeout     = 10 * time.Second
+	retryDelay         = 25 * time.Millisecond
+	maxIdleConnections = 1024
+)
 
-	randSource := rand.New(rand.NewSource(time.Now().UnixNano()))
-	transport := buildTransport(customIP, randSource)
-	client := &http.Client{Transport: transport, Timeout: 10 * time.Second}
+var (
+	help           = flag.Bool("h", false, "show this help")
+	concurrency    = flag.Int("c", defaultConcurrency, "number of concurrent workers")
+	targetURLFlag  = flag.String("s", "", "target URL (required unless -sub is used)")
+	postContent    = flag.String("p", "", "POST content; GET is used when empty")
+	referer        = flag.String("r", "", "Referer URL")
+	detectLocation = flag.Bool("d", false, "use the target's Location header")
+	xforwardfor    = flag.Bool("f", true, "send randomized X-Forwarded-For and X-Real-IP headers")
+	subscribe      = flag.String("sub", "", "URL returning the current target URL")
+	requestTimeout = flag.Duration("timeout", defaultTimeout, "per-request timeout")
+	runFor         = flag.Duration("t", 0, "stop after this duration; 0 means Ctrl-C")
 
-	for {
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					return
-				}
-			}()
+	terminalWriter = goterminal.New(os.Stdout)
+	customIP       ipArray
+	headers        headersList
+)
 
-			request, err1 := buildRequest(postContent, Referer, XforwardFor, randSource)
-			if err1 != nil {
-				return
-			}
+func usage() {
+	fmt.Fprintf(os.Stderr, `webBenchmark 1.0
+Usage: webBenchmark -s URL [options]
 
-			if len(headers) > 0 {
-				applyCustomHeaders(request, randSource)
-			}
-
-			resp, err2 := client.Do(request)
-			if err2 != nil {
-				return
-			}
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
-		}()
-	}
+`)
+	flag.PrintDefaults()
+	fmt.Fprintln(os.Stderr, `
+Examples:
+  webBenchmark -c 128 -s https://target.example -t 30s
+  webBenchmark -c 256 -s https://target.example -i 192.0.2.10 -i 192.0.2.11
+  webBenchmark -c 128 -sub https://controller.example/target -d
+`)
 }
 
-func buildTransport(customIP ipArray, randSource *rand.Rand) *http.Transport {
+func validateFlags() error {
+	if *concurrency <= 0 {
+		return fmt.Errorf("-c must be greater than zero")
+	}
+	if *requestTimeout <= 0 {
+		return fmt.Errorf("-timeout must be greater than zero")
+	}
+	if *runFor < 0 {
+		return fmt.Errorf("-t cannot be negative")
+	}
+	if strings.TrimSpace(*targetURLFlag) == "" && strings.TrimSpace(*subscribe) == "" {
+		return fmt.Errorf("-s or -sub is required")
+	}
+	if raw := strings.TrimSpace(*targetURLFlag); raw != "" {
+		if err := validateTargetURL(raw); err != nil {
+			return fmt.Errorf("invalid -s: %w", err)
+		}
+	}
+	if raw := strings.TrimSpace(*subscribe); raw != "" {
+		if err := validateTargetURL(raw); err != nil {
+			return fmt.Errorf("invalid -sub: %w", err)
+		}
+	}
+	return nil
+}
+
+func main() {
+	flag.Var(&customIP, "i", "custom destination IP; may be repeated")
+	flag.Var(&headers, "H", "custom header (Key:Value); RandomN generates N letters")
+	flag.Usage = usage
+	flag.Parse()
+
+	if *help {
+		usage()
+		return
+	}
+	if err := validateFlags(); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		usage()
+		return
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	if *runFor > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, *runFor)
+		defer cancel()
+	}
+
+	initialTarget := strings.TrimSpace(*targetURLFlag)
+	if *subscribe != "" {
+		var err error
+		initialTarget, err = Subscribe(ctx, strings.TrimSpace(*subscribe))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "subscription:", err)
+			return
+		}
+	}
+	if *detectLocation {
+		if location := GetHttpLocation(ctx, initialTarget); location != "" {
+			initialTarget = location
+		}
+	}
+	if err := validateTargetURL(initialTarget); err != nil {
+		fmt.Fprintln(os.Stderr, "target:", err)
+		return
+	}
+	setTargetURL(initialTarget)
+
+	if *subscribe != "" {
+		go subscribeUpdate(ctx, strings.TrimSpace(*subscribe), *detectLocation)
+	} else if *detectLocation {
+		go RefreshHttpLocation(ctx, initialTarget)
+	}
+
+	transport := buildTransport(customIP)
+	client := &http.Client{Transport: transport, Timeout: *requestTimeout}
+	defer transport.CloseIdleConnections()
+
+	go showStat(ctx)
+
+	var waitGroup sync.WaitGroup
+	for workerID := 0; workerID < *concurrency; workerID++ {
+		waitGroup.Add(1)
+		go goFun(ctx, client, *postContent, *referer, *xforwardfor, headers, workerID, &waitGroup)
+	}
+	waitGroup.Wait()
+	terminalWriter.Reset()
+}
+
+func buildTransport(customIPs ipArray) *http.Transport {
+	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
 	transport := &http.Transport{
-		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
-		ForceAttemptHTTP2:   true,
-		MaxIdleConns:        1024,
-		MaxIdleConnsPerHost: 1024,
-		IdleConnTimeout:     30 * time.Second,
-		DisableCompression:  true,
+		DialContext:           dialer.DialContext,
+		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true}, // CTF endpoints often use self-signed TLS.
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          maxIdleConnections,
+		MaxIdleConnsPerHost:   maxIdleConnections,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		DisableCompression:    true,
 	}
 
-	if customIP != nil && len(customIP) > 0 {
-		dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
-		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			ip := customIP[randSource.Intn(len(customIP))]
-			return dialer.DialContext(ctx, network, formatDialAddr(addr, ip))
-		}
-		transport.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			host, _, err := net.SplitHostPort(addr)
-			if err != nil {
-				return nil, err
-			}
-			ip := customIP[randSource.Intn(len(customIP))]
-			return tls.DialWithDialer(dialer, network, formatDialAddr(addr, ip), &tls.Config{
-				InsecureSkipVerify: true,
-				ServerName:         host,
-			})
-		}
+	if len(customIPs) == 0 {
+		return transport
 	}
 
+	var ipIndex atomic.Uint64
+	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		ip := customIPs[ipIndex.Add(1)%uint64(len(customIPs))]
+		return dialer.DialContext(ctx, network, formatDialAddr(addr, ip))
+	}
 	return transport
 }
 
 func formatDialAddr(addr, ip string) string {
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		// fallback to original when the address is unexpected
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil || net.ParseIP(ip) == nil {
 		return addr
-	}
-	if len(port) == 0 {
-		if strings.HasPrefix(host, "https") {
-			port = "443"
-		} else {
-			port = "80"
-		}
 	}
 	return net.JoinHostPort(ip, port)
 }
 
-func buildRequest(postContent string, Referer string, XforwardFor bool, randSource *rand.Rand) (*http.Request, error) {
-	var request *http.Request
-	var err error
-	if len(postContent) > 0 {
-		request, err = http.NewRequest("POST", TargetUrl, strings.NewReader(postContent))
-	} else {
-		request, err = http.NewRequest("GET", TargetUrl, nil)
+func goFun(ctx context.Context, client *http.Client, postContent, referer string, xforwardFor bool, customHeaders headersList, workerID int, waitGroup *sync.WaitGroup) {
+	defer waitGroup.Done()
+
+	randSource := rand.New(rand.NewSource(time.Now().UnixNano() + int64(workerID)))
+	for ctx.Err() == nil {
+		request, err := buildRequest(currentTargetURL(), postContent, referer, xforwardFor, customHeaders, randSource)
+		if err == nil {
+			response, requestErr := client.Do(request)
+			drainResponse(response)
+			if requestErr == nil {
+				continue
+			}
+		}
+		if !waitFor(ctx, retryDelay) {
+			return
+		}
 	}
+}
+
+func drainResponse(response *http.Response) {
+	if response == nil || response.Body == nil {
+		return
+	}
+	_, _ = io.Copy(io.Discard, response.Body)
+	_ = response.Body.Close()
+}
+
+func waitFor(ctx context.Context, duration time.Duration) bool {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func buildRequest(target, post, referer string, xforwardFor bool, customHeaders headersList, randSource *rand.Rand) (*http.Request, error) {
+	method := http.MethodGet
+	var body io.Reader
+	if post != "" {
+		method = http.MethodPost
+		body = strings.NewReader(post)
+	}
+
+	request, err := http.NewRequest(method, target, body)
 	if err != nil {
 		return nil, err
 	}
-	if len(Referer) == 0 {
-		Referer = TargetUrl
+	if referer == "" {
+		referer = target
 	}
-	request.Header.Add("Cookie", RandStringBytesMaskImpr(12, randSource))
-	request.Header.Add("User-Agent", browser.Random())
-	request.Header.Add("Referer", Referer)
-	if XforwardFor {
-		randomip := generateRandomIPAddress(randSource)
-		request.Header.Add("X-Forwarded-For", randomip)
-		request.Header.Add("X-Real-IP", randomip)
+	request.Header.Set("Cookie", RandStringBytesMaskImpr(12, randSource))
+	request.Header.Set("User-Agent", randomUserAgent(randSource))
+	request.Header.Set("Referer", referer)
+	if xforwardFor {
+		randomIP := generateRandomIPAddress(randSource)
+		request.Header.Set("X-Forwarded-For", randomIP)
+		request.Header.Set("X-Real-IP", randomIP)
 	}
+	applyCustomHeaders(request, customHeaders, randSource)
 	return request, nil
 }
 
-func applyCustomHeaders(request *http.Request, randSource *rand.Rand) {
-	for _, head := range headers {
-		headKey := head.key
-		headValue := head.value
-		if strings.HasPrefix(head.key, "Random") {
-			count, convErr := strconv.Atoi(strings.ReplaceAll(head.value, "Random", ""))
-			if convErr == nil {
-				headKey = RandStringBytesMaskImpr(count, randSource)
-			}
-		}
-		if strings.HasPrefix(head.value, "Random") {
-			count, convErr := strconv.Atoi(strings.ReplaceAll(head.value, "Random", ""))
-			if convErr == nil {
-				headValue = RandStringBytesMaskImpr(count, randSource)
-			}
-		}
-		request.Header.Del(headKey)
-		request.Header.Set(headKey, headValue)
+func applyCustomHeaders(request *http.Request, customHeaders headersList, randSource *rand.Rand) {
+	for _, header := range customHeaders {
+		request.Header.Set(randomValue(header.key, randSource), randomValue(header.value, randSource))
 	}
 }
 
-var h = flag.Bool("h", false, "this help")
-var count = flag.Int("c", 16, "concurrent thread for download,default 16")
-var url = flag.String("s", "", "target url")
-var postContent = flag.String("p", "", "post content")
-var referer = flag.String("r", "", "referer url")
-var detectLocation = flag.Bool("d", false, "detect Real link from the Location in http header")
-var xforwardfor = flag.Bool("f", true, "randomized X-Forwarded-For and X-Real-IP address")
-var subscribe = flag.String("sub", "", "subscribe url")
-var TerminalWriter = goterminal.New(os.Stdout)
-var customIP ipArray
-var headers headersList
-var TargetUrl string
-
-func usage() {
-	fmt.Fprintf(os.Stderr,
-		`webBenchmark version: /0.6
-Usage: webBenchmark [-c concurrent] [-s target] [-p] [-r refererUrl] [-f] [-i ip]
-
-Options:
-`)
-	flag.PrintDefaults()
-	fmt.Fprintf(os.Stderr,
-		`
-Advanced Example:
-webBenchmark -c 16 -s https://some.website -r https://referer.url -i 10.0.0.1 -i 10.0.0.2 
-	16 concurrent to benchmark https://some.website with https://referer.url directly to ip 10.0.0.1 and 10.0.0.2
-webBenchmark -c 16 -s https://some.website -r https://referer.url
-	16 concurrent to benchmark https://some.website with https://referer.url to dns resolved ip address
-
-`)
-}
-
-func main() {
-	flag.Var(&customIP, "i", "custom ip address for that domain, multiple addresses automatically will be assigned randomly")
-	flag.Var(&headers, "H", "custom header")
-	//flag.BoolVar(&detectLocation, "d", true, "detect Real link from the Location in http header")
-	flag.Usage = usage
-	flag.Parse()
-	if *h {
-		flag.Usage()
-		return
-	}
-	routines := *count
-
-	if len(*url) > 0 {
-		TargetUrl = *url
-	} else {
-		TargetUrl = "https://baidu.com"
-	}
-
-	if customIP != nil && len(customIP) > 0 && routines < len(customIP) {
-		routines = len(customIP)
-	}
-	// subscribe mode
-	if len(*subscribe) > 0 {
-		subs := Subscribe(*subscribe)
-		if *detectLocation {
-			location := GetHttpLocation(subs)
-			if len(location) > 0 {
-				TargetUrl = location
-			} else {
-				TargetUrl = subs
-			}
-		} else {
-			TargetUrl = subs
-		}
-		go subscribeUpdate(*subscribe)
-	}
-	// local detect location
-	if len(*subscribe) == 0 && *detectLocation && len(*url) > 0 {
-		location := GetHttpLocation(*url)
-		if len(location) > 0 {
-			TargetUrl = location
-		} else {
-			TargetUrl = *url
-		}
-
-		go RefreshHttpLocation(*url)
-	}
-
-	go showStat()
-	var waitgroup sync.WaitGroup
-	if routines <= 0 {
-		routines = 16
-	}
-
-	for i := 0; i < routines; i++ {
-		waitgroup.Add(1)
-		go goFun(*postContent, *referer, *xforwardfor, customIP, &waitgroup)
-	}
-	waitgroup.Wait()
-	TerminalWriter.Reset()
+func randomUserAgent(randSource *rand.Rand) string {
+	return userAgents[randSource.Intn(len(userAgents))]
 }

@@ -1,46 +1,65 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
-func Subscribe(url string) string {
-	resp, err := http.Get(url)
+const maxSubscriptionBytes = 1 << 20
+
+func Subscribe(ctx context.Context, rawURL string) (string, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		fmt.Println("Error:", err)
-		return ""
+		return "", err
 	}
-	defer resp.Body.Close()
-	readAll, err := io.ReadAll(resp.Body)
+	response, err := controlClient.Do(request)
 	if err != nil {
-		fmt.Println("Error:", err)
-		return ""
+		return "", err
 	}
-	return string(readAll)
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("subscription returned HTTP %s", response.Status)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxSubscriptionBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(body) > maxSubscriptionBytes {
+		return "", fmt.Errorf("subscription response exceeds %d bytes", maxSubscriptionBytes)
+	}
+	value := strings.TrimSpace(string(body))
+	if err := validateTargetURL(value); err != nil {
+		return "", fmt.Errorf("subscription returned invalid target: %w", err)
+	}
+	return value, nil
 }
 
-func subscribeUpdate(url string) {
-	defer func() {
-		if r := recover(); r != nil {
-			go subscribeUpdate(url)
-		}
-	}()
+func subscribeUpdate(ctx context.Context, rawURL string, detectLocation bool) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
 	for {
-		time.Sleep(30 * time.Second)
-		subUrl := Subscribe(url)
-		if len(subUrl) > 0 {
-			if *detectLocation {
-				location := GetHttpLocation(subUrl)
-				if len(location) > 0 {
-					TargetUrl = location
-				} else {
-					TargetUrl = subUrl
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			subURL, err := Subscribe(ctx, rawURL)
+			if err != nil {
+				continue
+			}
+			nextTarget := subURL
+			if detectLocation {
+				if location := GetHttpLocation(ctx, subURL); location != "" {
+					nextTarget = location
 				}
-			} else {
-				TargetUrl = subUrl
+			}
+			if validateTargetURL(nextTarget) == nil {
+				setTargetURL(nextTarget)
 			}
 		}
 	}
