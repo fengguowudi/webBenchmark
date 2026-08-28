@@ -26,3 +26,9 @@ following remain, all requiring something this harness cannot provide:
 webBenchmark on this box: 19.4 → ~30-36.5 Gbps loopback (depending on -c),
 leak-free, robust, release-ready. The bottleneck everywhere is the machine
 (loopback TCP / CPU), not the tool.
+
+## Correction (#28, robust harness)
+- Machine loopback wall is ~38-41 Gbps (hot window), not the old 35-37 estimate
+  (single-run, cooler machine). Pure-TCP diagnostic test trails the HTTP path by
+  ~5-10% (1MB-chunk write loop + shorter 4s window). Tool at c=4 sustains 38-41.
+- Robust-harness capability picture: peak ~38-41 @ c=4, metric ~33.5 @ c=64 (1MB).
