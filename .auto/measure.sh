@@ -3,9 +3,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 DUR=${DUR:-8}      # client run seconds (longer = less loopback noise)
-CONC=${CONC:-16}    # client concurrency (env override); 16 is the sweet spot on loopback
+CONC=${CONC:-64}    # client concurrency (env override)
 PORT=18081
-SIZE=${SIZE:-32768} # payload bytes (env override); 32KB keeps the client request-bound
+SIZE=${SIZE:-1048576} # payload bytes (env override); 1MB = bandwidth-saturation regime (goal), stable +/-1.5%
 
 # Fast pre-check: client must compile.
 go build -o .auto/wb.exe . || { echo "CLIENT_BUILD_FAILED"; exit 1; }
