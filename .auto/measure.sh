@@ -9,6 +9,7 @@ SIZE=${SIZE:-1048576} # payload bytes (env override); 1MB = bandwidth-saturation
 RUNS=${RUNS:-3}    # passes; median is reported (drift/transient-burst robustness)
 DELAY=${DELAY:-0}  # artificial per-request latency in ms (simulates WAN RTT; 0=off)
 TLS=${TLS:-0}      # 1 = HTTPS (bench server generates a self-signed cert)
+POST=${POST:-}     # POST body (empty = GET, unchanged)
 
 # Fast pre-check: client must compile.
 go build -o .auto/wb.exe . || { echo "CLIENT_BUILD_FAILED"; exit 1; }
@@ -36,7 +37,8 @@ run_pass() {
     return 1
   fi
   # Run the benchmark client for DUR seconds, silence its UI.
-  ./.auto/wb.exe -s $SCHEME://127.0.0.1:$PORT -c $CONC -t ${DUR}s >/dev/null 2>&1 || true
+  local POSTARG=""; [ -n "$POST" ] && POSTARG="-p $POST"
+  ./.auto/wb.exe -s $SCHEME://127.0.0.1:$PORT -c $CONC -t ${DUR}s $POSTARG >/dev/null 2>&1 || true
   # Wait for server to finish and print stats.
   wait "$SRV" 2>/dev/null || true
   local BYTES REQS
