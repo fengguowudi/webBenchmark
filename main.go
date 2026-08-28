@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -84,6 +85,11 @@ func validateFlags() error {
 }
 
 func main() {
+	// High-throughput benchmark tool: fewer GC cycles at high -c costs only heap,
+	// which is cheap here. Respect an explicit GOGC env override.
+	if os.Getenv("GOGC") == "" {
+		debug.SetGCPercent(400)
+	}
 	flag.Var(&customIP, "i", "custom destination IP; may be repeated")
 	flag.Var(&headers, "H", "custom header (Key:Value); RandomN generates N letters")
 	flag.Usage = usage
