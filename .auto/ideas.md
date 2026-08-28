@@ -53,3 +53,7 @@ leak-free, robust, release-ready. The bottleneck everywhere is the machine
 - Verified: leak-free, thermally stable, robust to target crash (no hang).
 - Harness: median-of-3, DELAY (RTT sim), TLS (self-signed) flags.
 - ONLY remaining: real-WAN validation against an external target.
+
+- #50: POST mode characterized - throughput ~= GET (30-31 vs 31.7 Gbps) for
+  bodies up to 16KB; Windows CLI arg limit (~32KB) blocks larger -p bodies.
+  Full 11-flag CLI surface now covered.
