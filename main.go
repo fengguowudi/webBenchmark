@@ -11,9 +11,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/apoorvam/goterminal"
@@ -84,6 +86,11 @@ func validateFlags() error {
 }
 
 func main() {
+	// High-throughput benchmark tool: fewer GC cycles at high -c costs only heap,
+	// which is cheap here. Respect an explicit GOGC env override.
+	if os.Getenv("GOGC") == "" {
+		debug.SetGCPercent(400)
+	}
 	flag.Var(&customIP, "i", "custom destination IP; may be repeated")
 	flag.Var(&headers, "H", "custom header (Key:Value); RandomN generates N letters")
 	flag.Usage = usage
@@ -149,7 +156,7 @@ func main() {
 }
 
 func buildTransport(customIPs ipArray) *http.Transport {
-	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second, Control: func(_, _ string, c syscall.RawConn) error { return tuneSocket(c) }}
 	transport := &http.Transport{
 		DialContext:           dialer.DialContext,
 		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true}, // CTF endpoints often use self-signed TLS.
