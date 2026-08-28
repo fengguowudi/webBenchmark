@@ -1,0 +1,6 @@
+12:39:09.466 invoked cwd=C:\Users\Administrator\Desktop\webBenchmark - 副本 args=[-c bash .auto/measure.sh]
+12:39:20.117 gitbash exit err=<nil> stdout="METRIC throughput_mbps=19423.82\nMETRIC reqs_per_sec=2316\n" stderr=""
+12:39:22.980 invoked cwd=C:\Users\Administrator\Desktop\webBenchmark - 副本 args=[-c bash .auto/measure.sh]
+12:39:33.180 gitbash exit err=<nil> stdout="METRIC throughput_mbps=19136.51\nMETRIC reqs_per_sec=2281\n" stderr=""
+12:39:34.536 invoked cwd=C:\Users\Administrator\Desktop\webBenchmark - 副本 args=[-c bash .auto/measure.sh]
+12:39:44.727 gitbash exit err=<nil> stdout="METRIC throughput_mbps=19566.43\nMETRIC reqs_per_sec=2332\n" stderr=""
