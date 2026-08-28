@@ -7,6 +7,7 @@ CONC=${CONC:-64}   # client concurrency (env override)
 PORT=18081
 SIZE=${SIZE:-1048576} # payload bytes (env override); 1MB = bandwidth-saturation regime (goal)
 RUNS=${RUNS:-3}    # passes; median is reported (drift/transient-burst robustness)
+DELAY=${DELAY:-0}  # artificial per-request latency in ms (simulates WAN RTT; 0=off)
 
 # Fast pre-check: client must compile.
 go build -o .auto/wb.exe . || { echo "CLIENT_BUILD_FAILED"; exit 1; }
@@ -14,7 +15,8 @@ go build -o .auto/benchserver.exe ./.auto/server || { echo "SERVER_BUILD_FAILED"
 
 # One full pass: fresh server + client run, echoes "MBPS RPS".
 run_pass() {
-  ./.auto/benchserver.exe -addr 127.0.0.1:$PORT -size $SIZE -runtime $((DUR+5))s > .auto/server.log 2>&1 &
+  local DELAYARG=""; [ "$DELAY" != "0" ] && DELAYARG="-delay ${DELAY}ms"
+  ./.auto/benchserver.exe -addr 127.0.0.1:$PORT -size $SIZE -runtime $((DUR+5))s $DELAYARG > .auto/server.log 2>&1 &
   local SRV=$!
   local READY=0
   for _ in $(seq 1 50); do

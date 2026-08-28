@@ -17,6 +17,7 @@ var (
 	addr          = flag.String("addr", "127.0.0.1:18081", "listen address")
 	size          = flag.Int("size", 1<<20, "payload bytes per response")
 	runtime       = flag.Duration("runtime", 14*time.Second, "how long to serve")
+	delay         = flag.Duration("delay", 0, "artificial per-request latency (simulates WAN RTT; 0 = off)")
 	body          []byte
 	contentLength string
 	bytesOut      atomic.Uint64
@@ -25,6 +26,9 @@ var (
 
 func handler(w http.ResponseWriter, r *http.Request) {
 	requests.Add(1)
+	if *delay > 0 {
+		time.Sleep(*delay)
+	}
 	w.Header().Set("Content-Length", contentLength)
 	n, _ := w.Write(body)
 	bytesOut.Add(uint64(n))
