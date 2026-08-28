@@ -61,3 +61,9 @@ body, no per-request allocation, counts bytes served).
 - The tool is already near-optimal; further client micro-optimization is below the noise floor.
 - Real-world saturation = use enough -c (16-256) and HTTP/1.1; the OS/wire, not this code, sets the ceiling.
 - Keep the benchmark as a regression check (client+server CPU pair), not a micro-optimization target.
+
+### Kept wins
+- **GOGC=400 baked in** (`debug.SetGCPercent(400)` when GOGC env unset): +4% at c=256/32KB (11.5 vs 11.0 Gbps), +3.8% at 1MB c=64 (20.2 vs 19.4 Gbps), noise-level at c=16. Memory flat ~65MB, no leak. Confidence 2.2x noise floor. (log #4, keep)
+
+### Discarded
+- Manual IP octet builder (removed fmt.Sprintf from hot path, 100K-case verified): metric-neutral at c=256, below noise floor. Reverted. (log #5)

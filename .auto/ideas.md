@@ -14,6 +14,5 @@
 - **Benchmark against a real remote server**: the loopback harness can't
   resolve sub-15% client changes. A WAN or 10G-LAN target would give the client
   code room to matter. Do this before any further client optimization.
-- **GC tuning (GOGC / GOMEMLIMIT)**: the c=64→256 rps penalty (~15%) is partly
-  GC/alloc driven; try GOGC=200 or GOMEMLIMIT to shrink the penalty if high -c
-  usage matters.
+- ~~GC tuning (GOGC / GOMEMLIMIT)~~ **DONE**: GOGC=400 baked in (debug.SetGCPercent), +4% at c=256 and +3.8% at 1MB, kept. GOMEMLIMIT variant untested — unlikely to beat GOGC=400; skip.
+- ~~Manual XFF IP builder (drop fmt.Sprintf)~~ **DONE + REVERTED**: metric-neutral on loopback (below noise). Re-add only if a real-WAN benchmark shows allocation pressure.
