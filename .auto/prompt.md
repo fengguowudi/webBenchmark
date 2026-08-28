@@ -69,6 +69,9 @@ body, no per-request allocation, counts bytes served).
 ### End-to-end validation (log #11)
 - Interleaved A/B, same tuned server: original client 19.4 vs current 29.75 Gbps median (**+53%**, 4 pairs, original matches its historical baseline exactly → gain is real, drift-free).
 
+### Measured-neutral (no change)
+- http.Client.Timeout machinery (10s default): removing it gains ~1.8% (within drift) — effectively free; keep the safety default. (log #14)
+
 ### Kept wins
 - **Socket buffers (2MB SO_RCVBUF/SO_SNDBUF), best-effort** (log #12): tuneSocket ignores setsockopt errors and returns nil — a rejected SO_RCVBUF (hardened kernel/container) can never fail dials and break the tool (net.Dialer.Control errors fail the dial).: build-tagged sockopt files (stdlib syscall), client Dialer.Control + bench-server tuned listener. 1MB c=64: 19.4 -> **32.0 Gbps (+60%)**, memory flat. Real high-BDP links benefit too. (log #6)
 - **GOGC=400 baked in** (`debug.SetGCPercent(400)` when GOGC env unset): +4% at c=256/32KB (11.5 vs 11.0 Gbps), +3.8% at 1MB c=64 (20.2 vs 19.4 Gbps), noise-level at c=16. Memory flat ~65MB, no leak. Confidence 2.2x noise floor. (log #4, keep)
