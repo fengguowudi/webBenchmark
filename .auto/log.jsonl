@@ -1,0 +1,1 @@
+{"type":"config","name":"webBenchmark client bandwidth saturation","metricName":"throughput_mbps","metricUnit":"","bestDirection":"higher"}
