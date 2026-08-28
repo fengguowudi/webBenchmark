@@ -6,9 +6,7 @@
   naive header parsing, but a well-buffered pipelined version could beat
   net/http on high-latency real links (RTT-bound, where per-request CPU is
   irrelevant). Add only if a real-WAN test shows net/http can't fill the pipe.
-- **Socket buffer tuning (SO_RCVBUF/SO_SNDBUF 1-4MB) via Dialer.Control**:
-  untested here; loopback was OS-capped so it wouldn't show. May matter on real
-  high-BDP links. Needs per-OS build-tagged syscall code (linux + windows).
+- ~~Socket buffer tuning~~ **DONE + KEPT**: 2MB SO_RCVBUF/SO_SNDBUF (build-tagged, stdlib syscall), 1MB c=64 19.4->32.0 Gbps (+60%). Try 2MB vs 4MB at 1MB: equal; 2MB halves kernel memory.
 - **Auto-concurrency**: pick -c so aggregate in-flight bytes ≈ BDP (RTT×BW).
   Over-engineering for a CTF tool; skip unless users complain.
 - **Benchmark against a real remote server**: the loopback harness can't

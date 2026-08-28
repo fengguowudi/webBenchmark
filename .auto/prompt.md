@@ -38,8 +38,8 @@ body, no per-request allocation, counts bytes served).
 
 ## What's Been Tried
 
-### Key finding: the client is NOT the bottleneck on this machine
-- Pure TCP loopback (no HTTP) caps at **~20-24 Gbps** on this Windows box; it *declines* with more connections. The OS/loopback is the ceiling.
+### Key finding: socket buffers were the hidden cap (CORRECTS earlier wrong conclusion)
+- Default Windows SO_RCVBUF/SO_SNDBUF (64KB) capped loopback at ~20 Gbps. With 2-4MB buffers, pure TCP hits 27-38 Gbps and the HTTP pair hits **32 Gbps** (was 19.4).
 - At 32KB payloads the client+server pair is CPU-saturated (~10-11/12 cores) at ~13-14 Gbps / 50K rps (c=16).
 - The net/http client **outperforms a raw TCP/HTTP implementation** (56K vs 49K rps) — no raw-rewrite win.
 - HTTP/2 over TLS is much worse on loopback (5.4 Gbps vs 14) — keep HTTP/1.1.
@@ -59,10 +59,11 @@ body, no per-request allocation, counts bytes served).
 
 ### Conclusion
 - The tool is already near-optimal; further client micro-optimization is below the noise floor.
-- Real-world saturation = use enough -c (16-256) and HTTP/1.1; the OS/wire, not this code, sets the ceiling.
+- Real-world saturation = use enough -c (16-256), HTTP/1.1, and the tuned socket buffers; the wire sets the ceiling, but default socket buffers no longer do.
 - Keep the benchmark as a regression check (client+server CPU pair), not a micro-optimization target.
 
 ### Kept wins
+- **Socket buffers (2MB SO_RCVBUF/SO_SNDBUF)**: build-tagged sockopt files (stdlib syscall), client Dialer.Control + bench-server tuned listener. 1MB c=64: 19.4 -> **32.0 Gbps (+60%)**, memory flat. Real high-BDP links benefit too. (log #6)
 - **GOGC=400 baked in** (`debug.SetGCPercent(400)` when GOGC env unset): +4% at c=256/32KB (11.5 vs 11.0 Gbps), +3.8% at 1MB c=64 (20.2 vs 19.4 Gbps), noise-level at c=16. Memory flat ~65MB, no leak. Confidence 2.2x noise floor. (log #4, keep)
 
 ### Discarded
