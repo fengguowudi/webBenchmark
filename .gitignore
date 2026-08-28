@@ -1,3 +1,9 @@
 .idea
 bin
-bash.exe
+*.exe
+*.prof
+.auto/server.log
+.auto/shim.log
+.auto/trace.log
+.auto/after.log
+.auto/diag.txt

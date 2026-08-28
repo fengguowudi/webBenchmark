@@ -2,8 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-DUR=${DUR:-4}      # client run seconds
-CONC=${CONC:-64}    # client concurrency (env override)
+DUR=${DUR:-8}      # client run seconds (longer = less loopback noise)
+CONC=${CONC:-16}    # client concurrency (env override); 16 is the sweet spot on loopback
 PORT=18081
 SIZE=${SIZE:-32768} # payload bytes (env override); 32KB keeps the client request-bound
 
