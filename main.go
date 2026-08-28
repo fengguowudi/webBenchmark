@@ -160,7 +160,7 @@ func buildTransport(customIPs ipArray) *http.Transport {
 	transport := &http.Transport{
 		DialContext:           dialer.DialContext,
 		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true}, // CTF endpoints often use self-signed TLS.
-		ForceAttemptHTTP2:     true,
+		ForceAttemptHTTP2:     false,
 		MaxIdleConns:          maxIdleConnections,
 		MaxIdleConnsPerHost:   maxIdleConnections,
 		IdleConnTimeout:       90 * time.Second,
