@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/apoorvam/goterminal"
@@ -155,7 +156,7 @@ func main() {
 }
 
 func buildTransport(customIPs ipArray) *http.Transport {
-	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second, Control: func(_, _ string, c syscall.RawConn) error { return tuneSocket(c) }}
 	transport := &http.Transport{
 		DialContext:           dialer.DialContext,
 		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true}, // CTF endpoints often use self-signed TLS.

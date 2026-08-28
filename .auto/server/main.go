@@ -1,25 +1,26 @@
+// Bench server: serves a fixed-size body as fast as possible, counts bytes,
+// auto-exits after -runtime and prints SERVED stats. Measures client-side
+// aggregate throughput of the benchmark tool. Accepted sockets get 4MB
+// buffers (same as the client) so Windows loopback defaults don't cap the test.
 package main
 
-// copy of bench server with cpuprofile support
 import (
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
-	"os"
-	"runtime/pprof"
 	"sync/atomic"
 	"time"
 )
 
 var (
-	addr    = flag.String("addr", "127.0.0.1:18083", "listen address")
-	size    = flag.Int("size", 1<<20, "payload bytes per response")
-	runtime = flag.Duration("runtime", 9*time.Second, "how long to serve")
-	prof    = flag.String("cpuprofile", "", "write cpu profile")
-	body    []byte
-	bytesOut atomic.Uint64
-	requests atomic.Uint64
+	addr          = flag.String("addr", "127.0.0.1:18081", "listen address")
+	size          = flag.Int("size", 1<<20, "payload bytes per response")
+	runtime       = flag.Duration("runtime", 14*time.Second, "how long to serve")
+	body          []byte
 	contentLength string
+	bytesOut      atomic.Uint64
+	requests      atomic.Uint64
 )
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -29,20 +30,39 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	bytesOut.Add(uint64(n))
 }
 
+// tunedListener tunes socket buffers on every accepted connection.
+type tunedListener struct {
+	net.Listener
+}
+
+func (l *tunedListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return c, err
+	}
+	if tc, ok := c.(*net.TCPConn); ok {
+		if rc, err := tc.SyscallConn(); err == nil {
+			_ = tuneSocket(rc)
+		}
+	}
+	return c, nil
+}
+
 func main() {
 	flag.Parse()
-	if *prof != "" {
-		f, _ := os.Create(*prof)
-		pprof.StartCPUProfile(f)
-		defer func() { pprof.StopCPUProfile(); f.Close() }()
-	}
 	body = make([]byte, *size)
 	contentLength = fmt.Sprintf("%d", len(body))
 	for i := range body {
 		body[i] = byte(i)
 	}
-	srv := &http.Server{Addr: *addr, Handler: http.HandlerFunc(handler)}
-	go func() { _ = srv.ListenAndServe() }()
+	ln, err := net.Listen("tcp", *addr)
+	if err != nil {
+		panic(err)
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(handler)}
+	go func() {
+		_ = srv.Serve(&tunedListener{Listener: ln})
+	}()
 	time.Sleep(*runtime)
 	_ = srv.Close()
 	fmt.Printf("SERVED bytes=%d requests=%d\n", bytesOut.Load(), requests.Load())
