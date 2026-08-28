@@ -8,6 +8,7 @@ PORT=18081
 SIZE=${SIZE:-1048576} # payload bytes (env override); 1MB = bandwidth-saturation regime (goal)
 RUNS=${RUNS:-3}    # passes; median is reported (drift/transient-burst robustness)
 DELAY=${DELAY:-0}  # artificial per-request latency in ms (simulates WAN RTT; 0=off)
+TLS=${TLS:-0}      # 1 = HTTPS (bench server generates a self-signed cert)
 
 # Fast pre-check: client must compile.
 go build -o .auto/wb.exe . || { echo "CLIENT_BUILD_FAILED"; exit 1; }
@@ -16,7 +17,9 @@ go build -o .auto/benchserver.exe ./.auto/server || { echo "SERVER_BUILD_FAILED"
 # One full pass: fresh server + client run, echoes "MBPS RPS".
 run_pass() {
   local DELAYARG=""; [ "$DELAY" != "0" ] && DELAYARG="-delay ${DELAY}ms"
-  ./.auto/benchserver.exe -addr 127.0.0.1:$PORT -size $SIZE -runtime $((DUR+5))s $DELAYARG > .auto/server.log 2>&1 &
+  local TLSARG=""; [ "$TLS" = "1" ] && TLSARG="-tls"
+  local SCHEME=http; [ "$TLS" = "1" ] && SCHEME=https
+  ./.auto/benchserver.exe -addr 127.0.0.1:$PORT -size $SIZE -runtime $((DUR+5))s $DELAYARG $TLSARG > .auto/server.log 2>&1 &
   local SRV=$!
   local READY=0
   for _ in $(seq 1 50); do
@@ -33,7 +36,7 @@ run_pass() {
     return 1
   fi
   # Run the benchmark client for DUR seconds, silence its UI.
-  ./.auto/wb.exe -s http://127.0.0.1:$PORT -c $CONC -t ${DUR}s >/dev/null 2>&1 || true
+  ./.auto/wb.exe -s $SCHEME://127.0.0.1:$PORT -c $CONC -t ${DUR}s >/dev/null 2>&1 || true
   # Wait for server to finish and print stats.
   wait "$SRV" 2>/dev/null || true
   local BYTES REQS
