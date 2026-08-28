@@ -7,3 +7,4 @@ bin
 .auto/trace.log
 .auto/after.log
 .auto/diag.txt
+.auto/diag_cpu.sh
